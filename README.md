@@ -1,122 +1,140 @@
-# 微信社交副驾 · Social Copilot
+# Social Copilot
+ 
+> 一个“静静待在侧边栏”的社交辅助驾驶桌面应用。
+> 当前阶段：**已完成阶段一基础外壳与 UI 骨架，下一步进入阶段二 AI 中转闭环**。
+ 
+---
 
-> 底座软件负责"灵魂提取"（Skill），外部 API 负责"逻辑生成"（Brain），用户通过 Tab 键完成"社交增强"。
-
-非侵入式侧边栏补全工具 —— **只读不写，人工决策**。
+## 规划基线
+ 
+- **当前版本规划**：`Plan/1.1.md`
+- 如后续出现新版本 Plan，应始终以最新版本为准
+ 
 
 ---
 
-## 产品哲学
+## 技术栈
 
-本系统采用"底座与模型分离"的设计，将**本地私有数据处理**与**云端生成能力**彻底解耦：
+| 层次 | 选型 |
+| --- | --- |
+| 外壳 / 系统层 | **Tauri v2**（Rust） |
+| 前端视图 | **Next.js 16 (App Router)** + **React 19** + **TypeScript** |
+| 样式 / UI | **TailwindCSS v4** + **Shadcn UI** (`base-nova` style, neutral base) + **lucide-react** |
+| 包管理 | **pnpm** |
+| AI 主链路（阶段二） | **Tauri Rust Command 中转** + **OpenAI-compatible provider**（待接入） |
 
-| 层级 | 职责 | 关键产物 |
-|------|------|----------|
-| **本地底座层**（Skill） | 灵魂提取：扫描微信记录，提炼用户表达特征 | `myself.skill` |
-| **云端大脑层**（Brain） | 逻辑生成：BYOK 接入任意兼容 OpenAI 协议的模型 | API 路由 + Prompt |
-| **感知渲染层**（Probe + UI） | 屏幕只读 + 幽灵文本补全 | Tab 键采纳 |
+Next.js 使用 **静态导出模式**（`output: 'export'`）产出 `out/` 供 Tauri 加载。
+这意味着 **Server Actions / API Routes / ISR 不可用**。
+当前已确定的技术路线是：**前端负责 UI 与交互，AI、系统能力、持久化能力统一优先通过 Tauri Rust Command 暴露**。
 
----
+## 产品目标
 
-## 项目结构
+- **手动触发获取建议**
+  - 保持“获取 AI 建议”按钮式交互，不恢复 Ghost Text 实时渲染。
+
+- **围绕聊天对象画像生成建议**
+  - 产品核心资产是 `contact.skill`，AI 输出持续受聊天对象画像约束。
+
+- **先保证桌面外壳稳定可用**
+  - 侧边栏窗口需要可拖拽、最小化、关闭、切换置顶，并在异常情况下提供明确降级反馈。
+
+## 目录结构
 
 ```
-social-copilot/
-│
-├── core/                        # 本地底座层 —— 灵魂提取
-│   ├── skill_distiller/         # [阶段1] 本地 Skill 蒸馏器
-│   ├── identity/                # [2.1] 角色信息分类 (Identity Mapping)
-│   ├── tone/                    # [2.2] 人设一致性与语气切换 (Tone Mask)
-│   └── reflection/              # [2.4] 协作修正与反思学习 (Reflection Loop)
-│
-├── brain/                       # 云端大脑层 —— 逻辑生成
-│   ├── api_hub/                 # [2.3] 灵活 API 接入 (Flexible Hub / BYOK)
-│   │   └── adapters/            # 各模型适配器（DeepSeek / 豆包 / 通义）
-│   ├── scenario/                # [2.5] 商务 / 亲密场景适配 (Scenario Logic)
-│   │   └── prompt_templates/    # Prompt 模板库
-│   └── rag/                     # RAG 本地知识库挂载
-│       └── knowledge_base/      # 用户自定义 Markdown 资料
-│
-├── probe/                       # 感知层 —— 屏幕只读探针
-│   ├── macos/                   # Accessibility API + Vision OCR
-│   └── windows/                 # UIAutomation
-│
-├── ui/                          # 渲染层 —— 侧边栏界面
-│   ├── sidebar/                 # [2.6] 幽灵文本 (Ghost Text)
-│   └── settings/                # API 配置 + 语气选择器
-│
-├── data/                        # 本地加密数据目录（不上传）
-│   ├── skill/                   # myself.skill 存储
-│   ├── feedback/                # Reflection Loop 反馈记录
-│   └── contacts/                # 联系人分类缓存
-│
-├── config/                      # 配置文件
-├── tests/                       # 单元测试
-└── docs/                        # 开发文档
+.
+├── src/                        # Next.js 源码
+│   ├── app/                    # App Router 入口
+│   │   ├── layout.tsx          # 根布局（全屏锁定、主题注入）
+│   │   ├── page.tsx            # 阶段一主视图（组合所有侧边栏组件）
+│   │   └── globals.css         # Tailwind + Shadcn 主题变量
+│   ├── components/
+│   │   ├── ui/                 # Shadcn 生成的基础组件
+│   │   ├── window-drag-bar.tsx # 无边框窗口顶部拖拽条 + 置顶/最小化/关闭
+│   │   ├── target-status-bar.tsx
+│   │   ├── profile-panel.tsx   # 画像标签增删
+│   │   ├── intent-selector.tsx # 意图下拉 + 自定义
+│   │   └── suggestion-panel.tsx# 获取建议按钮 + 候选卡片 + 一键复制
+│   └── lib/
+│       ├── types.ts            # Contact / ContactSkill / Intent / Suggestion
+│       ├── mock.ts             # 阶段一 Mock 数据与模拟生成函数
+│       ├── tauri-window.ts     # Tauri 窗口 API 的浏览器安全包装
+│       └── utils.ts            # Shadcn 的 cn()
+├── src-tauri/                  # Rust 外壳
+│   ├── src/                    # main.rs / lib.rs
+│   ├── capabilities/           # Tauri capability 权限配置
+│   ├── tauri.conf.json         # 窗口配置（无边框 / 置顶 / 380x820）
+│   └── Cargo.toml
+├── Plan/1.1.md                 # 当前唯一的权威规划文档
+├── next.config.ts
+├── components.json             # Shadcn 配置
+├── tsconfig.json
+└── package.json
 ```
 
----
+## 开发与构建
 
-## 六大核心功能
-
-### 2.1 Identity Mapping · 角色信息分类
-通过备注名、聊天频率、共同关键词自动划分联系人等级，确保 AI 建议精准对应"对方是谁"。
-
-### 2.2 Tone Mask · 人设与语气切换
-身份底色（专业背景、核心人设）保持稳定，提供**专业 / 亲和 / 极简**三种语气滤镜，一键切换。
-
-### 2.3 Flexible Hub · BYOK 接入
-支持任何兼容 OpenAI 协议的 API。商业场景可接 DeepSeek，亲密场景可接豆包，按需分配。
-
-### 2.4 Reflection Loop · 反思学习
-捕捉用户拒绝 AI 建议后的手动修改，记录终稿与草稿的语义差异，持续微调本地 Skill 参数。
-
-### 2.5 Scenario Logic · 场景适配
-- **商务场景**：专业术语、行动项补全、逻辑严密性
-- **亲密场景**：共情表达、幽默联想、生活化语气
-
-### 2.6 Ghost Text & Tab · 幽灵补全
-用户输入半句话后，AI 预测内容以浅灰色显示；按下 `Tab` 即采纳，降低 I 人社交焦虑。
-
----
-
-## 开发阶段路线图
-
-| 阶段 | 目标 | 核心模块 |
-|------|------|----------|
-| **Phase 1** | 本地 Skill 蒸馏器 | `core/skill_distiller/` |
-| **Phase 2** | 非侵入式输入监听 + 幽灵文本渲染 | `probe/` + `ui/sidebar/` |
-| **Phase 3** | 多模型路由 + RAG 整合 | `brain/api_hub/` + `brain/rag/` |
-
----
-
-## 隐私原则
-
-- **只读不写**：不修改微信内存，不侵入协议层
-- **本地加密**：`myself.skill` 及所有派生数据仅存于本机
-- **BYOK**：API Key 由用户自持，软件不经手任何密钥上报
-
----
-
-## 快速开始
-
-> 详见 `docs/` 目录下各阶段开发指南。
+### 1. 纯前端开发（浏览器，最快迭代）
 
 ```bash
-# 1. 安装依赖
-pip install -r requirements.txt
-
-# 2. 初始化 Skill 蒸馏（Phase 1）
-python -m core.skill_distiller
-
-# 3. 配置你的 API（BYOK）
-cp config/models.yaml.example config/models.yaml
-# 编辑 models.yaml，填入你的 API Key 与 Base URL
-
-# 4. 启动主程序
-python main.py
+pnpm dev
+# 访问 http://localhost:3000
+# Tauri 专属 API（窗口控制）会自动降级为 no-op，不会报错
 ```
 
----
+### 2. 真实 Tauri 窗口（看无边框 / 置顶效果）
 
-*PRD Version: V5.0 · 架构设计原则：解耦、只读、自进化*
+```bash
+pnpm tauri:dev
+# 首次会编译 Rust，耗时较长；之后是增量编译
+```
+
+### 3. 静态导出产物自检
+
+```bash
+pnpm build          # 输出 out/
+pnpm lint
+```
+
+### 4. 打包 macOS 安装包
+
+```bash
+pnpm tauri:build
+# 产物位于 src-tauri/target/release/bundle/
+```
+
+## 当前基线 ✅
+
+- [x] 移除全部 Python 代码（`brain/`、`distiller/`、`hook/`、`main.py` 等）
+- [x] Tauri v2 + Next.js 16 骨架（静态导出、pnpm、TS、App Router）
+- [x] Tauri 窗口：无边框、始终置顶、380×820 侧边栏尺寸
+- [x] Shadcn UI（`base-nova` / neutral）+ lucide 图标
+- [x] Target 状态栏（Mock "张总"，含"未捕获"降级态）
+- [x] Target 画像面板（标签增 / 删 / 空态）
+- [x] 意图选择器（3 个预置 + 自定义 / 删除自定义）
+- [x] 建议卡片面板（按钮 / loading 骨架 / 3 张卡片 / 一键复制）
+- [x] 自绘窗口控制（最小化、关闭、置顶切换，在浏览器端降级为 no-op）
+- [x] Tauri capability 权限补齐（拖拽、最小化、关闭、置顶）
+- [x] `pnpm build` 静态导出通过，`pnpm lint` 无告警
+
+## 下一步
+
+下一阶段的最小闭环目标是：
+
+1. **实现 Rust AI Command**
+   - 在 `src-tauri` 中新增如 `generate_suggestions` 的 Command。
+
+2. **前端接入真实调用链路**
+   - 将 `SuggestionPanel` 从本地 Mock 建议生成切换为 `invoke(...)` 调用。
+
+3. **正式化 `contact.skill` 数据契约**
+   - 明确 `manual_tags`、`distilled_traits`、摘要、更新时间等字段。
+
+4. **接入单一 OpenAI-compatible provider**
+   - 优先跑通最小闭环，再逐步补全代理、蒸馏与中间件能力。
+
+## 后续路线
+
+- **阶段二**：AI 中转层与 `contact.skill` 管线落地
+- **阶段三**：macOS 系统探针与真实聊天上下文捕获
+- **阶段四**：本地画像持久化
+- **阶段五**：工程化、可观测性与发布前收口
