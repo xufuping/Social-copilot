@@ -63,6 +63,25 @@ export interface Contact {
   skill: ContactSkill;
 }
 
+export interface WorkspaceContact extends Contact {
+  relation: string;
+  attributeDefinition: string;
+  lastActive: string;
+  summary: string;
+}
+
+export interface ComposerDraft {
+  incomingMessage: string;
+  expectation: string;
+}
+
+export interface ContactWorkspaceState {
+  draft: ComposerDraft;
+  suggestions: Suggestion[];
+  selectedSuggestionId?: string;
+  error: string | null;
+}
+
 /**
  * 沟通意图（Intent）。
  * 内置三种之外允许用户自定义，因此 id 保持为 string 而非 enum。
@@ -90,4 +109,22 @@ export interface SuggestionRequestContext {
   contact: Contact;
   intent: Intent;
   recentMessages: Message[];
+}
+
+export interface AiSuggestionRequest {
+  model: string;
+  contact: WorkspaceContact;
+  draft: ComposerDraft;
+  intent: Intent;
+  recentMessages: Message[];
+  workspaceContext: {
+    source: "manual-paste";
+    generatedAt: string;
+  };
+}
+
+export interface AiProviderConfig {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
 }
