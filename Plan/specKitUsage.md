@@ -1,7 +1,168 @@
 # Spec-Kit 多工具协作使用方案
 
 > **文档定位**：本文是 spec-kit 日常使用指南，重点说明如何在每个开发阶段**自主选择最适合的 AI 工具**。
-> 接入步骤请参考 `Plan/importSpecKit.md`。
+> 接入步骤请参考 `Plan/importSpecKit.md`，治理原则与合规边界请参考 `.specify/memory/constitution.md`。
+
+---
+
+## 0. 当前仓库的 Spec-Kit 安装现状（重要前置事实）
+
+执行过的初始化命令实际为：
+
+```bash
+specify init --here --force --integration claude
+```
+
+由此带来的几个**与原 importSpecKit.md 描述略有出入**的实情，先在这里对齐：
+
+| 事项 | 当前实情 |
+|---|---|
+| Skill 文件位置 | `.claude/skills/speckit-*/SKILL.md`（不是 `.cursor/skills/`） |
+| `CLAUDE.md` | 存在，仅含 SPECKIT START/END 标记块，提示 AI 读取当前 plan |
+| `.specify/integration.json` | `installed_integrations: ["claude"]` |
+| 扩展安装清单 | `installed: []`（暂未装 staff-review / verify 等第三方扩展） |
+| Git 钩子 | `.specify/extensions.yml` 中已启用 `before_*` / `after_*` 自动提交钩子（默认 optional） |
+| `.specify/memory/constitution.md` | 已按当前项目宪法（v1.0.0）填充，**不再是模板占位符** |
+
+**结论**：Cursor 完全可以直接使用现有 `.claude/skills/`，**无需再跑一次 `--integration cursor`**。
+
+---
+
+## 0.5 路线图（Roadmap）使用方式
+
+`.specify/memory/roadmap.md` 与 `constitution.md` **平级**，是 AI 在 spec-kit 流水线中的长期记忆之一。
+它把 `Plan/1.1.md` 散文式叙述切成 AI 友好的 feature 条目，便于按切片推进。
+
+**职责分工**：
+
+| 文件 | 角色 | 改动是否触发 constitution 版本 |
+|---|---|---|
+| `.specify/memory/constitution.md` | 跨 feature 的治理原则（NON-NEGOTIABLE 等） | 是 |
+| `.specify/memory/roadmap.md` | 当前活动路线图（feature 切片 + 状态机） | **否**（属于规划层面） |
+| `Plan/1.1.md` | 历史产品规划散文（保留只读） | 不适用 |
+| `specs/00N-xxx/` | 单个 feature 的具体规格（spec/plan/tasks） | 不适用 |
+
+**状态机**：每个 feature 条目都有一个 Status，spec-kit 流水线**严格按状态推进**：
+
+| Status | 允许的下一步 SKILL 调用 |
+|---|---|
+| `Backlog` | 仅允许 `speckit-specify`（首次开工） |
+| `InProgress` | `speckit-clarify` / `speckit-plan` / `speckit-tasks` / `speckit-implement` 全部允许 |
+| `Done` | 仅允许 read-only 引用（不再触发任何写 SKILL） |
+| `Deferred` / `Dropped` | 禁止任何 SKILL 触发，除非先手动改回 `Backlog` |
+
+**典型操作**：
+
+1. **查看路线图**：直接打开 `.specify/memory/roadmap.md`，或在 Cursor Agent 里
+   `@.specify/memory/roadmap.md 当前应该做哪个 feature？`
+2. **开新 feature**：找到下一个 `Backlog` 条目（如 `F001 contact-persistence`），复制其
+   "范围 / 不含 / 前置依赖"作为 `speckit-specify` skill 的输入。
+3. **状态推进**：feature 一旦 `speckit-specify` 成功落地 `specs/00N-xxx/`，**立即手动**把
+   roadmap 中该条目改 `InProgress`；合并回 main 后改 `Done`。
+4. **新增 / 拆分 feature**：直接编辑 `roadmap.md`，遵守文末"路线图维护规则"。
+
+---
+
+## 1. 在 Cursor IDE 中调用 Spec-Kit 的标准方案
+
+Cursor Agent 会**自动加载** `.claude/skills/speckit-*/SKILL.md` 作为 Agent Skill（可在聊天的 skills 列表中看到 `speckit-constitution` / `speckit-specify` / `speckit-plan` / `speckit-tasks` / `speckit-implement` / `speckit-clarify` / `speckit-analyze` / `speckit-checklist` / `speckit-taskstoissues` 共 9 项）。所以 Cursor 内的调用本质上是**让 Agent 读对应 SKILL.md 并按其 Outline 执行**。
+
+### 1.1 三种触发方式（按推荐度从高到低）
+
+#### 方式 A：自然语言点名 Skill（推荐，最稳）
+
+在 Cursor 右侧 Chat / Composer 中切到 **Agent** 模式（必须是 Agent，不能是 Ask），然后直接说：
+
+```
+请使用 speckit-specify skill 为我创建 Feature 规格：
+功能名称：contact-persistence（联系人画像本地持久化）
+需求描述：……
+```
+
+Cursor 会读取 `.claude/skills/speckit-specify/SKILL.md`，按其 Outline 跑：检查 pre-hook → 解析模板 → 调脚本（如 `create-new-feature.sh`）→ 写 `specs/xxx/spec.md` → 跑 post-hook。
+
+> Skill 名字用**连字符**（`speckit-specify`），不是点号。
+
+#### 方式 B：`@` 引用 SKILL.md + 输入参数
+
+如果 Agent 没自动捕获 skill（极少数情况），手动 `@` 喂上下文：
+
+```
+@.claude/skills/speckit-specify/SKILL.md
+@.specify/memory/constitution.md
+
+执行该 skill 的 Outline，参数（$ARGUMENTS）：
+功能名称：contact-persistence
+需求描述：……
+```
+
+这种方式可强制 Cursor 完全照搬 SKILL.md 的执行流程，适合首跑、对比 diff、或需要审阅每一步时。
+
+#### 方式 C：在终端用 Claude Code CLI（备选）
+
+如果你电脑上装了 `claude` CLI，可以在仓库根目录跑：
+
+```bash
+cd /Users/wudingxuan/web/test/Social-copilot
+claude
+# 然后在 Claude Code 里输入
+/speckit.specify ……
+```
+
+仅当你**确实想用 Claude Code 那套点号斜杠命令**时再走这条路。日常推荐方式 A。
+
+### 1.2 各阶段对应的 Cursor 触发模板
+
+| 阶段 | Skill 名 | Cursor Agent 一句话模板 |
+|---|---|---|
+| 治理原则修订 | `speckit-constitution` | `请用 speckit-constitution skill 更新宪法：……（修订点）` |
+| 功能规格 | `speckit-specify` | `请用 speckit-specify skill 创建 Feature：功能名 + 需求描述` |
+| 需求澄清 | `speckit-clarify` | `请用 speckit-clarify skill 对当前 spec 提问澄清` |
+| 检查清单 | `speckit-checklist` | `请用 speckit-checklist skill 为本 Feature 生成验收 checklist` |
+| 技术计划 | `speckit-plan` | `请用 speckit-plan skill 生成 plan，技术栈约束如下：……` |
+| 一致性分析 | `speckit-analyze` | `请用 speckit-analyze skill 跨 spec/plan/constitution 做一致性检查` |
+| 任务拆解 | `speckit-tasks` | `请用 speckit-tasks skill 基于当前 plan/data-model 拆任务` |
+| 代码实现 | `speckit-implement` | `请用 speckit-implement skill 执行 Phase 1 第 1.1–1.3 任务`（按需逐批） |
+| 任务转 Issue | `speckit-taskstoissues` | `请用 speckit-taskstoissues skill 把 tasks.md 转为 GitHub Issues` |
+
+> 注意：Cursor 内的 `/`（斜杠）面板调出来的是 **Cursor 自己的 commands**，并不是 spec-kit skill。spec-kit skill 不会出现在那个面板里——直接打字调用即可。
+
+### 1.3 与自动 Git 钩子的配合
+
+`.specify/extensions.yml` 已开启所有 `before_*` / `after_*` 钩子。每次执行 spec-kit skill 时，Cursor Agent 会按 SKILL.md 的 Pre/Post-Execution Checks 触发对应钩子：
+
+- **`before_constitution`**：`speckit.git.initialize`（**mandatory**）。仓库已是 git 仓库，钩子是 no-op，无需手动处理。
+- **`before_specify`**：`speckit.git.feature`（**mandatory**）。会先帮你建一条 `001-xxx` 分支，再开始写 spec。
+- **其余 `before_*` / `after_*`**：均为 `optional: true` 的 commit 钩子。Agent 会**问你是否提交**，按需回答即可。
+
+如果不想被 commit 钩子打扰，把 `.specify/extensions.yml` 中对应钩子改 `enabled: false`；不要直接删除整段，便于后续恢复。
+
+### 1.4 Cursor 中的 Implement 阶段最佳实践
+
+`speckit-implement` 会要求 Agent 自动跑完整张 `tasks.md`。在 Cursor 里**推荐两段式**而不是一把梭：
+
+1. **小批量驱动**：用方式 A 触发，但在 prompt 里限定范围——例如"**只执行 Phase 1（T001–T010）**"，跑完让你 review 一轮再继续。
+2. **跨任务 Review**：每跑完一个 Phase，让 Cursor 跑一次：
+
+   ```
+   请对照 @specs/xxx/spec.md 与 @.specify/memory/constitution.md，
+   review 刚才 Phase 1 的实现是否：
+   1. 满足验收标准；2. 不违反五条 Core Principles；
+   3. 通过 pnpm lint / pnpm build / cargo check。
+   ```
+
+这套节奏对应 §1.2 中 `speckit-analyze` 与"阶段 7 实现校验"，可视作 Cursor 内的轻量 verify。
+
+### 1.5 在 Cursor 中的最小手势速查
+
+| 想做的事 | 在 Cursor 里怎么做 |
+|---|---|
+| 写第一个 Feature 规格 | Agent 模式 → 输入 `请用 speckit-specify skill 创建 Feature：……` |
+| 跑一段实现 | Agent 模式 → `@specs/xxx/tasks.md` + `请用 speckit-implement skill 执行 Phase 1 全部任务` |
+| 查看当前宪法/规格 | 直接在编辑器中打开 `.specify/memory/constitution.md` / `specs/xxx/spec.md` |
+| 检查 spec 与实现是否一致 | Agent 模式 → `请用 speckit-analyze skill 检查 spec/plan/constitution 一致性` |
+| 调整 git 钩子是否自动提交 | 编辑 `.specify/extensions.yml`，把对应钩子 `enabled` 改 `false` |
+| 想要等价的 Claude Code 体验 | 终端进入仓库 → `claude` → 用 `/speckit.xxx` 点号命令 |
 
 ---
 
@@ -298,17 +459,21 @@ tasks.md 的标准格式如下，后续 IDE 实现阶段按此执行：
 
 ## 完整工作流速查表
 
-| 阶段 | 命令 | 推荐工具 | 备选工具 | 产出文件 |
+> Cursor 内的调用一律走 Agent 模式 + 自然语言点名 skill（见 §1.1 方式 A）；Claude Code 内才使用点号斜杠命令。
+
+| 阶段 | Skill 名 | 推荐工具 | 备选工具 | 产出文件 |
 |---|---|---|---|---|
-| 治理原则 | `/speckit.constitution` | Claude Code CLI | Cursor Agent | `.specify/memory/constitution.md` |
-| 功能规格 | `/speckit.specify` | Claude Code CLI | Cursor Agent / OpenRouter API | `specs/xxx/spec.md` |
-| 需求澄清 | `/speckit.clarify` | Claude Code CLI | 手动编辑 | `spec.md`（更新） |
-| 技术计划 | `/speckit.plan` | Claude Code CLI | Cursor Agent / DeepSeek | `plan.md` + `data-model.md` |
-| 一致性检查 | `/speckit.analyze` | Claude Code CLI | GPT（手动贴入） | 报告（无固定文件） |
-| 任务拆解 | `/speckit.tasks` | Claude Code CLI | Cursor Agent | `tasks.md` |
-| **代码实现** | `/speckit.implement` 或逐任务 | **Cursor Chat** | Zed / Windsurf / Claude Code | 代码文件 |
-| 实现校验 | 扩展或手动 | **GPT-4o（OpenRouter）** | Cursor Chat / Claude Code | 校验报告 |
-| 代码审查 | 扩展或手动 | **GPT-4o / o3（OpenRouter）** | Cursor Chat | 审查报告 |
+| 治理原则 | `speckit-constitution` | **Cursor Agent** | Claude Code（`/speckit.constitution`） | `.specify/memory/constitution.md` |
+| 功能规格 | `speckit-specify` | **Cursor Agent** | Claude Code / OpenRouter API | `specs/xxx/spec.md` |
+| 需求澄清 | `speckit-clarify` | **Cursor Agent** | Claude Code / 手动编辑 | `spec.md`（更新） |
+| 验收清单 | `speckit-checklist` | **Cursor Agent** | Claude Code | `specs/xxx/checklist.md` |
+| 技术计划 | `speckit-plan` | **Cursor Agent** | Claude Code / DeepSeek API | `plan.md` + `data-model.md` |
+| 一致性检查 | `speckit-analyze` | **Cursor Agent** | Claude Code / GPT 手动贴入 | 报告（无固定文件） |
+| 任务拆解 | `speckit-tasks` | **Cursor Agent** | Claude Code | `tasks.md` |
+| **代码实现** | `speckit-implement` | **Cursor Agent**（分 Phase 跑） | Claude Code / Zed / Windsurf | 代码文件 |
+| 任务转 Issue | `speckit-taskstoissues` | **Cursor Agent** | Claude Code | GitHub Issues |
+| 实现校验 | 扩展或手动 | **GPT-4o（OpenRouter）** | Cursor Agent / Claude Code | 校验报告 |
+| 代码审查 | 扩展或手动 | **GPT-4o / o3（OpenRouter）** | Cursor Agent | 审查报告 |
 
 ---
 
@@ -330,10 +495,19 @@ claude
 
 ### Cursor Agent 模式（IDE）
 
-1. 打开 Cursor，进入 Composer（⌘K 或左侧面板）
-2. 右上角切换到 **Agent** 模式
-3. 输入 `/speckit-specify`（注意：Cursor 中是**连字符**，不是点）
-4. 可在同一对话中 @引用 spec 文件提供上下文
+> 详细方案见上文 §1。这里只放最短调用步骤。
+
+1. 打开 Cursor 右侧 Chat / Composer，**右上角切到 Agent 模式**（必须是 Agent，不能是 Ask / Edit）。
+2. 用自然语言点名 skill 即可，例如：
+
+   ```
+   请使用 speckit-specify skill 为我创建 Feature 规格：……
+   ```
+
+3. 当前仓库通过 `--integration claude` 安装，对应 skill 文件位于 `.claude/skills/speckit-*/SKILL.md`，
+   Cursor 会自动加载为 Agent Skills，无需额外配置。
+4. 需要强引用某个 SKILL 时可 `@.claude/skills/speckit-<name>/SKILL.md` + `@.specify/memory/constitution.md`。
+5. Cursor 的 `/` 面板调出来的是 Cursor commands，不是 spec-kit skills——**spec-kit skill 用打字调用，不用斜杠**。
 
 ### OpenRouter / 纯 API 工具（Zed / ChatGPT / 自定义客户端）
 
@@ -381,29 +555,25 @@ verify/review 开始前：
 
 ---
 
-## 新功能开发标准流程（日常参考）
+## 新功能开发标准流程（日常参考，Cursor 优先）
 
-每次开发新功能时，从以下命令开始：
+每次开发新功能时，**在 Cursor Agent 模式**下按顺序点名 skill；Claude Code CLI 等价路径放在右列备用。
 
-```bash
-# 1. 在 Claude Code 中创建新功能规格
-/speckit.specify [功能名称和需求描述]
+| 步骤 | Cursor Agent 调用语 | 等价 Claude Code 命令 |
+|---|---|---|
+| 0. 选切片 | 打开 `.specify/memory/roadmap.md`，找下一个 `Backlog` 条目（如 `F001`），把其"范围 / 不含 / 前置依赖"复制为下一步输入 | 同左 |
+| 1. 建 Feature 规格 | `请用 speckit-specify skill 创建 Feature：……（粘贴 F0XX 条目内容）` | `/speckit.specify ……` |
+| 2. 澄清（可选） | `请用 speckit-clarify skill 对当前 spec 提问澄清` | `/speckit.clarify` |
+| 3. 验收清单（可选） | `请用 speckit-checklist skill 生成验收清单` | `/speckit.checklist` |
+| 4. 技术计划 | `请用 speckit-plan skill 生成 plan，技术栈约束如下：……` | `/speckit.plan ……` |
+| 5. 一致性检查（推荐） | `请用 speckit-analyze skill 检查 spec/plan/constitution` | `/speckit.analyze` |
+| 6. 任务拆解 | `请用 speckit-tasks skill 拆任务` | `/speckit.tasks` |
+| 7. 实现（分 Phase） | `@specs/xxx/tasks.md` + `请用 speckit-implement skill 执行 Phase 1 全部任务` | `/speckit.implement` |
+| 8. 校验/审查 | `请对照 spec.md 与 constitution.md，逐条验收 Phase 1 实现` | 同左或换 GPT |
+| 9. 提交 | 自动 commit 钩子已开启，按提示回答即可 | 同左 |
+| 10. 收尾 | feature 分支合并回 main 后，**手动**把 `.specify/memory/roadmap.md` 中对应条目 Status 改 `Done`，并把验收结论追加到文末"已完成（Done）"区块 | 同左 |
 
-# 2. 澄清模糊点（可选）
-/speckit.clarify
-
-# 3. 生成技术计划（可在此切换到 DeepSeek 节省 token）
-/speckit.plan [技术栈约束]
-
-# 4. 生成任务清单
-/speckit.tasks
-
-# 5. 切换到 Cursor Chat，按 tasks.md 逐任务实现
-
-# 6. 切换到 GPT（via OpenRouter），对照 spec.md 验收
-
-# 7. 提交代码，保留 specs/xxx/ 目录到 git
-```
+`specs/xxx/` 目录全程保留进 git，与代码一同审查；`roadmap.md` 的 Status 切换不影响 constitution 版本，直接 commit 即可。
 
 ---
 
