@@ -41,6 +41,13 @@ export interface ContactSkill {
   distilled_traits: DistilledTrait[];
   notes?: string;
   updated_at: string;
+  /** 蒸馏 skill 文件读取失败等；为 true 时顶栏展示「skill 信息错误」 */
+  skillFileError?: boolean;
+  /**
+   * 外部引入的蒸馏 Markdown 文件路径（本地绝对/相对路径均可）。
+   * 顶栏「skill蒸馏」仅展示此引用，不展示 manual_tags 等摘要。
+   */
+  distilled_md_path?: string;
 }
 
 /** 由 AI 从聊天记录中提炼的单条特征（阶段二才会被写入，阶段一保持空数组） */
@@ -64,10 +71,12 @@ export interface Contact {
 }
 
 export interface WorkspaceContact extends Contact {
-  relation: string;
+  /** @deprecated 由 attributeDefinition 吸收；仅兼容旧数据与 Rust 序列化 */
+  relation?: string;
   attributeDefinition: string;
   lastActive: string;
-  summary: string;
+  /** 列表摘要等派生展示，可选 */
+  summary?: string;
 }
 
 export interface ComposerDraft {
@@ -75,11 +84,21 @@ export interface ComposerDraft {
   expectation: string;
 }
 
+export type SuggestionStyleMode = "title" | "minimal";
+
 export interface ContactWorkspaceState {
   draft: ComposerDraft;
   suggestions: Suggestion[];
   selectedSuggestionId?: string;
+  /** 用户对每条建议编辑后的覆盖文案 */
+  suggestionTextOverrides?: Record<string, string>;
+  /** 3～10，默认 3 */
+  suggestionCount?: number;
+  /** 候选卡片 style 展示；默认 title */
+  suggestionStyleMode?: SuggestionStyleMode;
   error: string | null;
+  /** 已发送归档的对方消息，用于气泡展示与后续性格蒸馏 */
+  peerMessageHistory?: Message[];
 }
 
 /**
@@ -113,6 +132,8 @@ export interface SuggestionRequestContext {
 
 export interface AiSuggestionRequest {
   model: string;
+  /** 3～10；Prompt 须体现「提供 n 条回复消息」 */
+  suggestionCount: number;
   contact: WorkspaceContact;
   draft: ComposerDraft;
   intent: Intent;

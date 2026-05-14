@@ -8,11 +8,17 @@ use tauri::Manager;
 #[allow(dead_code)]
 struct AiSuggestionRequest {
   model: String,
+  #[serde(default = "default_suggestion_count")]
+  suggestion_count: u8,
   contact: WorkspaceContact,
   draft: ComposerDraft,
   intent: Intent,
   recent_messages: Vec<Message>,
   workspace_context: WorkspaceContext,
+}
+
+fn default_suggestion_count() -> u8 {
+  3
 }
 
 #[derive(Debug, Deserialize)]
@@ -21,10 +27,12 @@ struct AiSuggestionRequest {
 struct WorkspaceContact {
   id: String,
   name: String,
-  relation: String,
+  #[serde(default)]
+  relation: Option<String>,
   attribute_definition: String,
   last_active: String,
-  summary: String,
+  #[serde(default)]
+  summary: Option<String>,
   skill: ContactSkill,
 }
 
@@ -35,6 +43,8 @@ struct ContactSkill {
   distilled_traits: Vec<DistilledTrait>,
   notes: Option<String>,
   updated_at: String,
+  #[serde(default)]
+  distilled_md_path: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -134,6 +144,7 @@ async fn generate_ai_suggestions(
   let endpoint = chat_completions_endpoint(&config.base_url);
   let system_prompt = build_system_prompt(&request);
   let user_prompt = build_user_prompt(&request);
+  let n = (request.suggestion_count as u32).clamp(3, 10);
 
   let response = reqwest::Client::new()
     .post(endpoint)
@@ -145,7 +156,7 @@ async fn generate_ai_suggestions(
         { "role": "user", "content": user_prompt }
       ],
       "temperature": 0.7,
-      "n": 3
+      "n": n
     }))
     .send()
     .await
@@ -165,7 +176,7 @@ async fn generate_ai_suggestions(
     ));
   }
 
-  parse_openai_suggestions(&body)
+  parse_openai_suggestions(&body, n as usize)
 }
 
 fn ai_config_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -200,20 +211,34 @@ fn chat_completions_endpoint(base_url: &str) -> String {
 }
 
 fn build_system_prompt(request: &AiSuggestionRequest) -> String {
+  let n = (request.suggestion_count as u32).clamp(3, 10);
+  let relation = request
+    .contact
+    .relation
+    .as_deref()
+    .filter(|s| !s.trim().is_empty())
+    .unwrap_or("(属性定义中已含关系语义时可不单独填写)");
+  let summary = request
+    .contact
+    .summary
+    .as_deref()
+    .filter(|s| !s.trim().is_empty())
+    .unwrap_or("(无)");
   format!(
-    "你是 Social Copilot 的中文回复助手。请根据联系人画像和本次上下文，生成 2-3 条可直接复制发送的中文候选回复。要求：自然、具体、符合用户预期，不要解释推理过程。\n\n联系人：{}\n关系：{}\n属性定义：{}\n联系人摘要：{}\n手动标签：{}\n备注：{}",
+    "你是 Social Copilot 的中文回复助手。请根据联系人画像和本次上下文，生成 **{n} 条**可直接复制发送的中文候选回复（请提供 {n} 条回复消息）。要求：自然、具体、符合用户预期，不要解释推理过程。\n\n联系人：{}\n关系/补充：{}\n属性定义：{}\n联系人摘要：{}\n手动标签：{}\n备注：{}",
     request.contact.name,
-    request.contact.relation,
+    relation,
     request.contact.attribute_definition,
-    request.contact.summary,
+    summary,
     request.contact.skill.manual_tags.join("、"),
     request.contact.skill.notes.clone().unwrap_or_default()
   )
 }
 
 fn build_user_prompt(request: &AiSuggestionRequest) -> String {
+  let n = (request.suggestion_count as u32).clamp(3, 10);
   format!(
-    "联系人发来的消息：{}\n我的交流预期：{}\n意图标签：{}\n意图描述：{}\n请返回 2-3 条候选回复，每条风格略有区分。",
+    "联系人发来的消息：{}\n我的交流预期：{}\n意图标签：{}\n意图描述：{}\n请提供 {n} 条候选回复消息，每条风格略有区分。",
     request.draft.incoming_message,
     request.draft.expectation,
     request.intent.label,
@@ -221,7 +246,7 @@ fn build_user_prompt(request: &AiSuggestionRequest) -> String {
   )
 }
 
-fn parse_openai_suggestions(body: &str) -> Result<Vec<Suggestion>, String> {
+fn parse_openai_suggestions(body: &str, max_count: usize) -> Result<Vec<Suggestion>, String> {
   let value: serde_json::Value =
     serde_json::from_str(body).map_err(|err| format!("解析模型响应 JSON 失败：{err}"))?;
   let choices = value
@@ -229,9 +254,12 @@ fn parse_openai_suggestions(body: &str) -> Result<Vec<Suggestion>, String> {
     .and_then(|choices| choices.as_array())
     .ok_or_else(|| "模型响应缺少 choices 字段。".to_string())?;
 
-  let styles = ["自然", "稳妥", "直接"];
+  let styles = [
+    "自然", "稳妥", "直接", "温和", "幽默", "专业", "简洁", "真诚", "周到", "克制",
+  ];
   let suggestions: Vec<Suggestion> = choices
     .iter()
+    .take(max_count)
     .enumerate()
     .filter_map(|(index, choice)| {
       let text = choice
@@ -248,11 +276,10 @@ fn parse_openai_suggestions(body: &str) -> Result<Vec<Suggestion>, String> {
 
       Some(Suggestion {
         id: format!("ai-{index}"),
-        style: styles.get(index).unwrap_or(&"候选").to_string(),
+        style: styles[index % styles.len()].to_string(),
         text,
       })
     })
-    .take(3)
     .collect();
 
   if suggestions.is_empty() {
