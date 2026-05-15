@@ -77,6 +77,8 @@ export interface WorkspaceContact extends Contact {
   lastActive: string;
   /** 列表摘要等派生展示，可选 */
   summary?: string;
+  /** 持久化 schema 版本号（Rust 层写入，前端只读） */
+  schemaVersion?: number;
 }
 
 export interface ComposerDraft {

@@ -1,11 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AiConfigDialog } from "@/components/ai-config-dialog";
 import { ChatWorkspace } from "@/components/chat-workspace";
 import { ContactSidebar } from "@/components/contact-sidebar";
 import { WindowDragBar } from "@/components/window-drag-bar";
 import { getAiProviderConfig, requestAiSuggestions, saveAiProviderConfig } from "@/lib/ai";
+import { loadContacts, saveContact } from "@/lib/contact-storage";
 import { generateMockSuggestions } from "@/lib/mock";
 import {
   loadPeerMessagesMap,
@@ -15,6 +16,7 @@ import type {
   AiSuggestionRequest,
   AiProviderConfig,
   ComposerDraft,
+  ContactSkill,
   ContactWorkspaceState,
   Intent,
   Message,
@@ -36,7 +38,8 @@ const PROMPT_CHIPS = [
 
 const MOCK_UPDATED_AT = "2026-01-01T00:00:00.000Z";
 
-const INITIAL_CONTACTS: WorkspaceContact[] = [
+/** 浏览器开发模式（pnpm dev, 非 Tauri）下的降级数据 */
+const DEV_FALLBACK_CONTACTS: WorkspaceContact[] = [
   {
     id: "zhang-san",
     name: "张三",
@@ -131,18 +134,73 @@ function initialWorkspaceStatesForContacts(
   );
 }
 
+function isTauriEnv(): boolean {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
 export default function Home() {
-  const [contacts, setContacts] = useState<WorkspaceContact[]>(INITIAL_CONTACTS);
-  const [selectedContactId, setSelectedContactId] = useState(INITIAL_CONTACTS[0].id);
+  const [contacts, setContacts] = useState<WorkspaceContact[]>(() =>
+    isTauriEnv() ? [] : DEV_FALLBACK_CONTACTS,
+  );
+  const [isContactsLoading, setIsContactsLoading] = useState(() => isTauriEnv());
+  const [selectedContactId, setSelectedContactId] = useState<string | undefined>(
+    isTauriEnv() ? undefined : DEV_FALLBACK_CONTACTS[0]?.id,
+  );
   const [searchQuery, setSearchQuery] = useState("");
   const [model, setModel] = useState("mock");
   const [workspaceStates, setWorkspaceStates] = useState<Record<string, ContactWorkspaceState>>(
-    () => initialWorkspaceStatesForContacts(INITIAL_CONTACTS, loadPeerMessagesMap()),
+    () =>
+      isTauriEnv()
+        ? {}
+        : initialWorkspaceStatesForContacts(DEV_FALLBACK_CONTACTS, loadPeerMessagesMap()),
   );
   const [isGenerating, setIsGenerating] = useState(false);
   const [copiedSuggestionId, setCopiedSuggestionId] = useState<string | null>(null);
   const [aiConfigOpen, setAiConfigOpen] = useState(false);
   const [aiConfig, setAiConfig] = useState<AiProviderConfig | null>(null);
+
+  // ── 启动时从磁盘加载联系人 ─────────────────────────────────────────────
+  useEffect(() => {
+    if (!isTauriEnv()) return;
+
+    let cancelled = false;
+    setIsContactsLoading(true);
+
+    loadContacts()
+      .then((persisted) => {
+        if (cancelled) return;
+        if (persisted.length > 0) {
+          setContacts(persisted);
+          setSelectedContactId(persisted[0].id);
+          const peerMap = loadPeerMessagesMap();
+          setWorkspaceStates(initialWorkspaceStatesForContacts(persisted, peerMap));
+        } else {
+          setContacts(DEV_FALLBACK_CONTACTS);
+          setSelectedContactId(DEV_FALLBACK_CONTACTS[0]?.id);
+          setWorkspaceStates(
+            initialWorkspaceStatesForContacts(DEV_FALLBACK_CONTACTS, loadPeerMessagesMap()),
+          );
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          console.warn("[loadContacts] 读取失败，使用内置数据：", err);
+          setContacts(DEV_FALLBACK_CONTACTS);
+          setSelectedContactId(DEV_FALLBACK_CONTACTS[0]?.id);
+          setWorkspaceStates(
+            initialWorkspaceStatesForContacts(DEV_FALLBACK_CONTACTS, loadPeerMessagesMap()),
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setIsContactsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const selectedContact = useMemo(
     () => contacts.find((contact) => contact.id === selectedContactId) ?? contacts[0],
@@ -208,6 +266,11 @@ export default function Home() {
       },
     };
 
+    // Persist asynchronously; UI optimistically updates first
+    saveContact(nextContact).catch((err) =>
+      console.error("[createContact] 保存联系人失败：", err),
+    );
+
     setContacts((prev) => [nextContact, ...prev]);
     setWorkspaceStates((prev) => ({
       ...prev,
@@ -230,6 +293,18 @@ export default function Home() {
         },
       };
     });
+  };
+
+  const handleContactSkillChange = (nextSkill: ContactSkill) => {
+    if (!selectedContact) return;
+    const updatedContact: WorkspaceContact = {
+      ...selectedContact,
+      skill: { ...nextSkill, updated_at: new Date().toISOString() },
+    };
+    setContacts((prev) => prev.map((c) => (c.id === updatedContact.id ? updatedContact : c)));
+    saveContact(updatedContact).catch((err) =>
+      console.error("[handleContactSkillChange] 保存失败：", err),
+    );
   };
 
   const updateSelectedWorkspaceState = (
@@ -456,6 +531,7 @@ export default function Home() {
           onOpenModelConfig={() => void openAiConfig()}
           onSend={() => void sendToModel()}
           onCopySuggestionText={(id, text) => void copySuggestionText(id, text)}
+          onContactSkillChange={handleContactSkillChange}
         />
       </main>
       {aiConfigOpen ? (
