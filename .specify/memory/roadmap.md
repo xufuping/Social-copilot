@@ -28,7 +28,7 @@
 
 | ID | 名称 | 优先级 | 状态 | 源头 | 前置依赖 |
 |---|---|---|---|---|---|
-| F001 | contact-persistence | P1 | Backlog | Plan/1.1.md §3.1 + §3.2 | 无 |
+| F001 | contact-persistence | P1 | InProgress | Plan/1.1.md §3.1 + §3.2 | 无 |
 | F002 | contact-rag-memory | P2 | Backlog | Plan/1.1.md §3.3 | F001 |
 | F003 | engineering-hardening | P2 | Backlog | Plan/1.1.md §5.1 + §5.2 | F001 |
 | F004 | rich-input-references | P3 | Backlog | Plan/1.1.md §4.1 + §4.2 | F001、F003 |
@@ -43,7 +43,7 @@
 ## F001 contact-persistence — 联系人画像本地持久化
 
 - **优先级**：P1（当前首要）
-- **状态**：Backlog
+- **状态**：InProgress
 - **源头**：Plan/1.1.md §3.1 + §3.2
 - **前置依赖**：无
 - **范围（What）**：
