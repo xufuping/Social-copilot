@@ -37,27 +37,27 @@ interface ConversationAreaProps {
   onCopySuggestionText: (suggestionId: string, text: string) => void;
 }
 
-/** 顶栏：skill 蒸馏 = 外部 md 路径引用 */
-function skillDistilledPathLine(contact: WorkspaceContact): { short: string; title: string } {
-  if (contact.skill.skillFileError) {
-    return {
-      short: "读取失败",
-      title: "蒸馏 Markdown 读取失败，请检查路径或文件权限。",
-    };
-  }
-  const path = contact.skill.distilled_md_path?.trim();
-  if (!path) {
-    return {
-      short: "未关联",
-      title: "尚未绑定蒸馏 Markdown 文件路径（distilled_md_path）。",
-    };
-  }
-  const short = path.length > 24 ? `${path.slice(0, 24)}…` : path;
-  return { short, title: path };
-}
+// /** 顶栏：skill 蒸馏 = 外部 md 路径引用 */
+// function skillDistilledPathLine(contact: WorkspaceContact): { short: string; title: string } {
+//   if (contact.skill.skillFileError) {
+//     return {
+//       short: "读取失败",
+//       title: "蒸馏 Markdown 读取失败，请检查路径或文件权限。",
+//     };
+//   }
+//   const path = contact.skill.distilled_md_path?.trim();
+//   if (!path) {
+//     return {
+//       short: "未关联",
+//       title: "尚未绑定蒸馏 Markdown 文件路径（distilled_md_path）。",
+//     };
+//   }
+//   const short = path.length > 24 ? `${path.slice(0, 24)}…` : path;
+//   return { short, title: path };
+// }
 
 function attributeDefinitionHoverText(contact: WorkspaceContact): string {
-  const attr = contact.attributeDefinition.trim() || "（未填写属性定义）";
+  const attr = contact.attributeDefinition.trim() || "";
   const extra = [contact.summary?.trim() && `摘要：${contact.summary.trim()}`]
     .filter(Boolean)
     .join("\n");
@@ -85,9 +85,9 @@ export function ConversationArea({
 }: ConversationAreaProps) {
   const attrFull = contact.attributeDefinition.trim();
   const attrShort =
-    attrFull.length > 36 ? `${attrFull.slice(0, 36)}…` : attrFull || "（未填写属性定义）";
+    attrFull.length > 36 ? `${attrFull.slice(0, 36)}…` : attrFull || "";
   const attrHover = attributeDefinitionHoverText(contact);
-  const skillPath = skillDistilledPathLine(contact);
+  // const skillPath = skillDistilledPathLine(contact);
 
   const previewSelfText = selectedSuggestion
     ? (suggestionTextOverrides[selectedSuggestion.id] ?? selectedSuggestion.text)
@@ -99,58 +99,66 @@ export function ConversationArea({
     suggestions.length === 0;
 
   const previewColumn = (
-    <Card className="flex min-h-0 min-w-0 flex-col gap-0 overflow-hidden shadow-sm ring-1 ring-border/60">
+    <Card className="flex min-h-0 min-w-0 flex-col gap-0 overflow-hidden shadow-sm ring-1 ring-border/60 pt-2">
       <div
-        className="flex h-5 shrink-0 items-center gap-x-1.5 border-b border-border/80 bg-muted/30 px-1.5 py-0 text-[8px] leading-tight"
+        className="flex h-5 shrink-0 items-center gap-x-1.5 border-b border-border/80 bg-muted/30 px-1.5 py-0 text-[12px] leading-tight"
         aria-label="当前联系人上下文"
       >
-        <span className="shrink-0 text-muted-foreground">属性定义</span>
+        <span className="shrink-0 text-muted-foreground">属性:</span>
         <span
           className="min-w-0 flex-[1.1] cursor-default truncate font-medium text-foreground"
           title={attrHover}
         >
           {attrShort}
         </span>
-        <span className="shrink-0 text-muted-foreground">skill蒸馏</span>
+        {/* <span className="shrink-0 text-muted-foreground">skill蒸馏</span>
         <span
           className="min-w-0 max-w-[42%] shrink-0 cursor-default truncate font-mono text-[7px] text-foreground"
           title={skillPath.title}
         >
           {skillPath.short}
-        </span>
+        </span> */}
       </div>
       <CardContent className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto bg-muted/20 px-2.5 py-1.5">
-        {peerMessages.map((msg) => (
-          <div key={msg.id} className="flex justify-start">
-            <div className="max-w-[88%] rounded-lg rounded-tl-sm bg-background px-2 py-0.5 text-[10px] leading-tight shadow-sm ring-1 ring-border/40">
-              {msg.text}
+        {peerMessages.map((msg) =>
+          msg.sender === "self" ? (
+            <div key={msg.id} className="flex justify-end">
+              <div className="max-w-[88%] rounded-lg rounded-tr-sm bg-primary px-2 py-0.5 text-[12px] leading-tight text-primary-foreground shadow-sm ring-1 ring-primary/20">
+                {msg.text}
+              </div>
             </div>
-          </div>
-        ))}
+          ) : (
+            <div key={msg.id} className="flex justify-start">
+              <div className="max-w-[88%] rounded-lg rounded-tl-sm bg-background px-2 py-0.5 text-[12px] leading-tight shadow-sm ring-1 ring-border/40">
+                {msg.text}
+              </div>
+            </div>
+          ),
+        )}
         {draft.incomingMessage.trim() ? (
           <div className="flex justify-start">
-            <div className="max-w-[88%] rounded-lg rounded-tl-sm bg-background px-2 py-0.5 text-[10px] leading-tight shadow-sm ring-1 ring-border/40">
+            <div className="max-w-[88%] rounded-lg rounded-tl-sm bg-background px-2 py-0.5 text-[12px] leading-tight shadow-sm ring-1 ring-border/40 opacity-80">
               {draft.incomingMessage}
             </div>
           </div>
         ) : showPeerPasteHint ? (
-          <div className="rounded-lg border border-dashed border-muted-foreground/25 bg-background/70 px-2 py-3 text-center text-[10px] leading-snug text-muted-foreground">
-            粘贴联系人消息后，将在这里预览对话上下文。
+          <div className="rounded-lg border border-dashed border-muted-foreground/25 bg-background/70 px-2 py-3 text-center text-[12px] leading-snug text-muted-foreground">
+            将在这里预览对话上下文。
           </div>
         ) : null}
 
         {selectedSuggestion && previewSelfText.trim() ? (
           <div className="flex justify-end">
-            <div className="max-w-[88%] rounded-lg rounded-tr-sm bg-primary px-2 py-0.5 text-[10px] leading-tight text-primary-foreground shadow-sm ring-1 ring-primary/20">
+            <div className="max-w-[88%] rounded-lg rounded-tr-sm bg-primary/80 px-2 py-0.5 text-[12px] leading-tight text-primary-foreground shadow-sm ring-1 ring-primary/20">
               {previewSelfText}
             </div>
           </div>
-        ) : (
-          <div className="mt-auto flex items-center justify-center gap-1 rounded-lg border border-dashed border-muted-foreground/25 bg-background/70 px-2 py-4 text-center text-[10px] leading-snug text-muted-foreground">
+        ) : peerMessages.length === 0 && !draft.incomingMessage.trim() ? (
+          <div className="mt-auto flex items-center justify-center gap-1 rounded-lg border border-dashed border-muted-foreground/25 bg-background/70 px-2 py-4 text-center text-[12px] leading-snug text-muted-foreground">
             <Sparkles className="size-3 shrink-0" />
             生成后将在这里预览候选回复。
           </div>
-        )}
+        ) : null}
       </CardContent>
     </Card>
   );
@@ -211,14 +219,14 @@ export function ConversationArea({
           ) : null}
 
           {error ? (
-            <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-[10px] text-destructive">
+            <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-[12px] text-destructive">
               {error}
             </div>
           ) : null}
 
           {isGenerating ? (
             <Card className="overflow-visible py-0 shadow-sm ring-1 ring-border/60">
-              <CardContent className="flex items-center gap-2 px-2 py-1.5 text-[10px] text-muted-foreground">
+              <CardContent className="flex items-center gap-2 px-2 py-1.5 text-[12px] text-muted-foreground">
                 <Loader2 className="size-3 shrink-0 animate-spin" />
                 AI 正在生成候选回复…
               </CardContent>
@@ -256,8 +264,8 @@ export function ConversationArea({
             <Card className="flex flex-1 overflow-visible border-dashed py-0 shadow-sm">
               <CardContent className="flex flex-1 flex-col items-center justify-center gap-1.5 px-3 py-8 text-center">
                 <Bot className="size-6 text-muted-foreground" />
-                <div className="text-[10px] font-medium">还没有生成候选回复</div>
-                <p className="max-w-sm text-[10px] leading-snug text-muted-foreground">
+                <div className="text-[12px] font-medium">还没有生成候选回复</div>
+                <p className="max-w-sm text-[12px] leading-snug text-muted-foreground">
                   粘贴联系人发来的消息，补充你的交流预期，然后点击发送。
                 </p>
               </CardContent>

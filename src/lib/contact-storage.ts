@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { ContactSkill, WorkspaceContact } from "@/lib/types";
+import type { WorkspaceContact } from "@/lib/types";
 
 function isTauriEnv(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -25,14 +25,3 @@ export async function sanitizeContactName(name: string): Promise<string> {
   return invoke<string>("sanitize_contact_name", { name });
 }
 
-export async function updateContactSkill(
-  contact: WorkspaceContact,
-  nextSkill: ContactSkill,
-): Promise<WorkspaceContact> {
-  const updated: WorkspaceContact = {
-    ...contact,
-    skill: { ...nextSkill, updated_at: new Date().toISOString() },
-  };
-  await saveContact(updated);
-  return updated;
-}

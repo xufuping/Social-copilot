@@ -1,9 +1,7 @@
 import { ComposerPanel } from "@/components/composer-panel";
 import { ConversationArea } from "@/components/conversation-area";
-import { ProfilePanel } from "@/components/profile-panel";
 import type {
   ComposerDraft,
-  ContactSkill,
   Message,
   Suggestion,
   SuggestionStyleMode,
@@ -38,7 +36,6 @@ interface ChatWorkspaceProps {
   onOpenModelConfig: () => void;
   onSend: () => void;
   onCopySuggestionText: (suggestionId: string, text: string) => void;
-  onContactSkillChange?: (nextSkill: ContactSkill) => void;
 }
 
 export function ChatWorkspace({
@@ -69,7 +66,6 @@ export function ChatWorkspace({
   onOpenModelConfig,
   onSend,
   onCopySuggestionText,
-  onContactSkillChange,
 }: ChatWorkspaceProps) {
   return (
     <section className="flex min-h-0 flex-col bg-background">
@@ -94,9 +90,6 @@ export function ChatWorkspace({
             onSelectSuggestionPreview={onSelectSuggestionPreview}
             onCopySuggestionText={onCopySuggestionText}
           />
-          {onContactSkillChange && contact.skill && (
-            <ProfilePanel skill={contact.skill} onChange={onContactSkillChange} />
-          )}
           <ComposerPanel
             draft={draft}
             model={model}

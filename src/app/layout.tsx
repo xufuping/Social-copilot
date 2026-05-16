@@ -37,7 +37,7 @@ export default function RootLayout({
       lang="zh-CN"
       className={`${geistSans.variable} ${geistMono.variable} antialiased`}
     >
-      <body className="h-screen overflow-hidden bg-background text-foreground flex flex-col">
+      <body className="h-screen overflow-hidden bg-transparent text-foreground flex flex-col">
         {children}
       </body>
     </html>

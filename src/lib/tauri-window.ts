@@ -39,12 +39,3 @@ export async function closeWindow(): Promise<void> {
   await getCurrentWindow().close();
 }
 
-/** 切换"始终置顶" */
-export async function toggleAlwaysOnTop(nextValue: boolean): Promise<void> {
-  if (!isTauri()) {
-    console.info(`[tauri-window] alwaysOnTop → ${nextValue} skipped (not in Tauri)`);
-    return;
-  }
-  const { getCurrentWindow } = await import("@tauri-apps/api/window");
-  await getCurrentWindow().setAlwaysOnTop(nextValue);
-}

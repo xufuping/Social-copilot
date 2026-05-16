@@ -32,3 +32,16 @@ export function persistPeerMessagesForContact(
   const base = previousMap ?? loadPeerMessagesMap();
   savePeerMessagesMap({ ...base, [contactId]: messages });
 }
+
+export function clearPeerMessagesForContacts(contactIds: string[]): void {
+  if (contactIds.length === 0) return;
+  const base = loadPeerMessagesMap();
+  let changed = false;
+  for (const id of contactIds) {
+    if (id in base) {
+      delete base[id];
+      changed = true;
+    }
+  }
+  if (changed) savePeerMessagesMap(base);
+}

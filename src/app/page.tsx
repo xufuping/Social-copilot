@@ -6,9 +6,10 @@ import { ChatWorkspace } from "@/components/chat-workspace";
 import { ContactSidebar } from "@/components/contact-sidebar";
 import { WindowDragBar } from "@/components/window-drag-bar";
 import { getAiProviderConfig, requestAiSuggestions, saveAiProviderConfig } from "@/lib/ai";
-import { loadContacts, saveContact } from "@/lib/contact-storage";
+import { deleteContact, loadContacts, saveContact } from "@/lib/contact-storage";
 import { generateMockSuggestions } from "@/lib/mock";
 import {
+  clearPeerMessagesForContacts,
   loadPeerMessagesMap,
   persistPeerMessagesForContact,
 } from "@/lib/peer-message-storage";
@@ -16,7 +17,6 @@ import type {
   AiSuggestionRequest,
   AiProviderConfig,
   ComposerDraft,
-  ContactSkill,
   ContactWorkspaceState,
   Intent,
   Message,
@@ -139,62 +139,54 @@ function isTauriEnv(): boolean {
 }
 
 export default function Home() {
-  const [contacts, setContacts] = useState<WorkspaceContact[]>(() =>
-    isTauriEnv() ? [] : DEV_FALLBACK_CONTACTS,
-  );
-  const [isContactsLoading, setIsContactsLoading] = useState(() => isTauriEnv());
+  // Initial state must be deterministic and identical between SSR and client to avoid
+  // hydration mismatch. localStorage/Tauri loading happens in useEffect after mount.
+  const [contacts, setContacts] = useState<WorkspaceContact[]>(DEV_FALLBACK_CONTACTS);
   const [selectedContactId, setSelectedContactId] = useState<string | undefined>(
-    isTauriEnv() ? undefined : DEV_FALLBACK_CONTACTS[0]?.id,
+    DEV_FALLBACK_CONTACTS[0]?.id,
   );
   const [searchQuery, setSearchQuery] = useState("");
   const [model, setModel] = useState("mock");
   const [workspaceStates, setWorkspaceStates] = useState<Record<string, ContactWorkspaceState>>(
-    () =>
-      isTauriEnv()
-        ? {}
-        : initialWorkspaceStatesForContacts(DEV_FALLBACK_CONTACTS, loadPeerMessagesMap()),
+    () => initialWorkspaceStatesForContacts(DEV_FALLBACK_CONTACTS, {}),
   );
   const [isGenerating, setIsGenerating] = useState(false);
   const [copiedSuggestionId, setCopiedSuggestionId] = useState<string | null>(null);
   const [aiConfigOpen, setAiConfigOpen] = useState(false);
   const [aiConfig, setAiConfig] = useState<AiProviderConfig | null>(null);
 
-  // ── 启动时从磁盘加载联系人 ─────────────────────────────────────────────
+  // ── 启动后（mount）从磁盘 / localStorage 加载真实数据 ─────────────────
+  // 必须在 useEffect 内，避免与 SSR 初始 state 不一致造成 hydration 报错。
   useEffect(() => {
-    if (!isTauriEnv()) return;
-
     let cancelled = false;
-    setIsContactsLoading(true);
+    const peerMap = loadPeerMessagesMap();
 
-    loadContacts()
-      .then((persisted) => {
-        if (cancelled) return;
-        if (persisted.length > 0) {
-          setContacts(persisted);
-          setSelectedContactId(persisted[0].id);
-          const peerMap = loadPeerMessagesMap();
-          setWorkspaceStates(initialWorkspaceStatesForContacts(persisted, peerMap));
-        } else {
-          setContacts(DEV_FALLBACK_CONTACTS);
-          setSelectedContactId(DEV_FALLBACK_CONTACTS[0]?.id);
+    if (isTauriEnv()) {
+      loadContacts()
+        .then((persisted) => {
+          if (cancelled) return;
+          if (persisted.length > 0) {
+            setContacts(persisted);
+            setSelectedContactId(persisted[0].id);
+            setWorkspaceStates(initialWorkspaceStatesForContacts(persisted, peerMap));
+          } else {
+            // Tauri 环境但目录为空 → 用 fallback 数据 + localStorage peer 消息
+            setWorkspaceStates(
+              initialWorkspaceStatesForContacts(DEV_FALLBACK_CONTACTS, peerMap),
+            );
+          }
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          console.warn("[loadContacts] 读取失败，保留内置数据：", err);
           setWorkspaceStates(
-            initialWorkspaceStatesForContacts(DEV_FALLBACK_CONTACTS, loadPeerMessagesMap()),
+            initialWorkspaceStatesForContacts(DEV_FALLBACK_CONTACTS, peerMap),
           );
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          console.warn("[loadContacts] 读取失败，使用内置数据：", err);
-          setContacts(DEV_FALLBACK_CONTACTS);
-          setSelectedContactId(DEV_FALLBACK_CONTACTS[0]?.id);
-          setWorkspaceStates(
-            initialWorkspaceStatesForContacts(DEV_FALLBACK_CONTACTS, loadPeerMessagesMap()),
-          );
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setIsContactsLoading(false);
-      });
+        });
+    } else {
+      // 非 Tauri（浏览器 dev）→ 仅同步 localStorage peer 消息
+      setWorkspaceStates(initialWorkspaceStatesForContacts(DEV_FALLBACK_CONTACTS, peerMap));
+    }
 
     return () => {
       cancelled = true;
@@ -251,7 +243,7 @@ export default function Home() {
     const now = new Date().toISOString();
     const name = payload.name.trim();
     const attributeDefinition =
-      payload.attributeDefinition.trim() || "待补充属性定义（可含关系、身份等语义）";
+      payload.attributeDefinition.trim() || "";
 
     const nextContact: WorkspaceContact = {
       id: `contact-${Date.now()}`,
@@ -279,6 +271,64 @@ export default function Home() {
     setSelectedContactId(nextContact.id);
   };
 
+  const updateContact = (
+    contactId: string,
+    payload: { name: string; attributeDefinition: string },
+  ) => {
+    const name = payload.name.trim();
+    if (!name) return;
+    const attributeDefinition = payload.attributeDefinition.trim();
+    const target = contacts.find((contact) => contact.id === contactId);
+    if (!target) return;
+
+    const nextContact: WorkspaceContact = {
+      ...target,
+      name,
+      attributeDefinition,
+      skill: {
+        ...target.skill,
+        updated_at: new Date().toISOString(),
+      },
+    };
+
+    setContacts((prev) =>
+      prev.map((contact) => (contact.id === contactId ? nextContact : contact)),
+    );
+
+    saveContact(nextContact).catch((err) =>
+      console.error("[updateContact] 保存联系人失败：", err),
+    );
+  };
+
+  const deleteContacts = (contactIds: string[]) => {
+    if (contactIds.length === 0) return;
+    const idSet = new Set(contactIds);
+
+    setContacts((prev) => prev.filter((contact) => !idSet.has(contact.id)));
+    setWorkspaceStates((prev) => {
+      const next = { ...prev };
+      for (const id of contactIds) {
+        delete next[id];
+      }
+      return next;
+    });
+    setSelectedContactId((prev) => {
+      if (prev && idSet.has(prev)) {
+        const fallback = contacts.find((c) => !idSet.has(c.id));
+        return fallback?.id;
+      }
+      return prev;
+    });
+
+    clearPeerMessagesForContacts(contactIds);
+
+    for (const id of contactIds) {
+      deleteContact(id).catch((err) =>
+        console.error(`[deleteContacts] 删除联系人 ${id} 失败：`, err),
+      );
+    }
+  };
+
   const selectContact = (contactId: string) => {
     setSelectedContactId(contactId);
     setWorkspaceStates((prev) => {
@@ -293,18 +343,6 @@ export default function Home() {
         },
       };
     });
-  };
-
-  const handleContactSkillChange = (nextSkill: ContactSkill) => {
-    if (!selectedContact) return;
-    const updatedContact: WorkspaceContact = {
-      ...selectedContact,
-      skill: { ...nextSkill, updated_at: new Date().toISOString() },
-    };
-    setContacts((prev) => prev.map((c) => (c.id === updatedContact.id ? updatedContact : c)));
-    saveContact(updatedContact).catch((err) =>
-      console.error("[handleContactSkillChange] 保存失败：", err),
-    );
   };
 
   const updateSelectedWorkspaceState = (
@@ -476,6 +514,31 @@ export default function Home() {
       await navigator.clipboard.writeText(text);
       setCopiedSuggestionId(suggestionId);
       window.setTimeout(() => setCopiedSuggestionId(null), 1600);
+
+      const trimmed = text.trim();
+      if (!trimmed || !selectedContact) return;
+
+      const contactId = selectedContact.id;
+      let appendedHistory: Message[] | null = null;
+      updateSelectedWorkspaceState((state) => {
+        const history = state.peerMessageHistory ?? [];
+        const last = history[history.length - 1];
+        if (last && last.sender === "self" && last.text.trim() === trimmed) {
+          return state;
+        }
+        const selfMessage: Message = {
+          id: `self-${Date.now()}-${suggestionId}`,
+          sender: "self",
+          text: trimmed,
+          timestamp: new Date().toISOString(),
+        };
+        const next = [...history, selfMessage];
+        appendedHistory = next;
+        return { ...state, peerMessageHistory: next };
+      });
+      if (appendedHistory) {
+        persistPeerMessagesForContact(contactId, appendedHistory);
+      }
     } catch {
       updateSelectedWorkspaceState((state) => ({
         ...state,
@@ -492,7 +555,7 @@ export default function Home() {
   };
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-muted/30">
+    <div className="flex h-screen flex-col overflow-hidden rounded-xl border border-border bg-muted/30 shadow-2xl">
       <WindowDragBar />
       <main className="grid min-h-0 flex-1 grid-cols-[280px_minmax(0,1fr)]">
         <ContactSidebar
@@ -501,6 +564,8 @@ export default function Home() {
           searchQuery={searchQuery}
           onSearchQueryChange={setSearchQuery}
           onCreateContact={createContact}
+          onUpdateContact={updateContact}
+          onDeleteContacts={deleteContacts}
           onSelectContact={selectContact}
         />
         <ChatWorkspace
@@ -531,7 +596,6 @@ export default function Home() {
           onOpenModelConfig={() => void openAiConfig()}
           onSend={() => void sendToModel()}
           onCopySuggestionText={(id, text) => void copySuggestionText(id, text)}
-          onContactSkillChange={handleContactSkillChange}
         />
       </main>
       {aiConfigOpen ? (
